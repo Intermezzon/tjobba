@@ -150,11 +150,11 @@ class Router
 	 *
 	 * Callback gets this router as sole argument.
 	 *
-	 * Before filters has BeforeFilterInfo as argument.
-	 * After filters havs AfterFilterInfo as argument.
+	 * Before filters have BeforeFilterInfo as argument.
+	 * After filters have AfterFilterInfo as argument.
 	 *
-	 * @param array $before Filters to run before routes
-	 * @param array $after Filters to run after routes
+	 * @param callable[] $before Filters to run before routes
+	 * @param callable[] $after Filters to run after routes
 	 * @param callable $callback Add your routes in this callback
 	 */
 	public function filter($before, $after, $callback)
