@@ -4,7 +4,7 @@ namespace Tjobba
 {
 
 /**
- * CRUD router
+ * A router
  *
  * Maps a verb+path to a callback (the handler).
  *
