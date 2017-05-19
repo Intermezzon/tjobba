@@ -22,14 +22,22 @@ namespace Tjobba
  * regex over and over, by inserting them inside { and }:
  *
  *   $router->variable('foo', '[0-9+]');
- *   $router->read('path/{foo}/baz', $handler);
+ *   $router->read('path/{foo}/baz', 'fooHandler');
+ *   // Same as:
+ *   $router->read('path/[0-9+]/baz', 'fooHandler')
  *
  *   $router->route('path/123/baz', ...)	// Will match
  *   $router->route('path/abc/baz', ...)	// Won't
  *
- * The handlers take the captured variables as arguments + the input data:
+ * The handlers take the captured variables + the input data as arguments:
  *
  *   fooHandler($id, $data) { ... }
+ *
+ * Filters can be run before or after the action. They are run in the order they are registered.
+ * If any before-filter returns a value (not-null) processing is aborted and that value is the final result.
+ * After-filters are run in a chain, each filter passing the result on to the next, and finally out the end.
+ *
+ * Filters can be nested!
  *
  * Route with {@see self::route()}:
  *
