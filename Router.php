@@ -104,7 +104,7 @@ class Router
 			throw new \Exception('Wrong number of arguments');
 		}
 
-		$this->register($arguments[0], $arguments[1]);
+		$this->register($name, $arguments[0], $arguments[1]);
 	}
 
 	/**
