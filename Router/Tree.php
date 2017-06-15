@@ -8,8 +8,8 @@ namespace Tjobba\Router
  *
  *   $router = new \Tjobba\Router\Tree(['read', 'create']);
  *   $router->path('path', function($router) {
- *       router->path('subpath1', 'read', function ($router) { return "This is route /path/subpath1"; });
- *       router->path('subpath2', ['read', 'create'], function ($router) { return "This is route /path/subpath2"; });
+ *       $router->path('subpath1', 'read', function ($router) { return "This is route /path/subpath1"; });
+ *       $router->path('subpath2', ['read', 'create'], function ($router) { return "This is route /path/subpath2"; });
  *   });
  *
  * Paths can also have variables defined by regex patterns. Sub-patterns are passed to route handlers as
@@ -17,8 +17,8 @@ namespace Tjobba\Router
  *
  *   $router = new \Tjobba\Router\Tree(['read', 'create']);
  *   $router->path('path', function($router) {
- *       router->pathVariable('/^([a-zA-Z0-9]+)$/', function ($router, $arg1) { 
- *           router->path('subpath2', ['read', 'create'], function ($router, $arg1) { return "This is route /path/" . $arg1 . "/subpath2"; });
+ *       $router->pathVariable('/^([a-zA-Z0-9]+)$/', function ($router, $arg1) { 
+ *           $router->path('subpath2', ['read', 'create'], function ($router, $arg1) { return "This is route /path/" . $arg1 . "/subpath2"; });
  *       });
  *   });
  *
@@ -65,7 +65,7 @@ class Tree
 	/**
 	 * Add a possible path to the route
 	 *
-	 * @param string $subpath exact path
+	 * @param string|array $subpath exact paths
 	 * @param string|array $verbs (optional)
 	 * @param callable $callback Callback executed if path match
 	 */
@@ -75,8 +75,11 @@ class Tree
 		$callback = array_pop($args);
 		$verbs = count($args) == 2 ? (is_array($args[1]) ? $args[1] : [$args[1]]) : false;
 		$filters = $this->collectFilters();
+		$subpaths = is_array($subpath) ? $subpath : [$subpath];
 
-		$this->subpaths[$subpath] = new Route($callback, $verbs, $filters[0], $filters[1]);
+		foreach ($subpaths as $path) {
+			$this->subpaths[$path] = $this->createPath($callback, $verbs, $filters[0], $filters[1]);
+		}
 	}
 
 	/**
@@ -93,7 +96,7 @@ class Tree
 		$verbs = count($args) == 2 ? (is_array($args[1]) ? $args[1] : [$args[1]]) : false;
 		$filters = $this->collectFilters();
 
-		$this->subpatterns[] = new Route($callback, $verbs, $filters[0], $filters[1], $pattern);
+		$this->subpatterns[] = $this->createPath($callback, $verbs, $filters[0], $filters[1], $pattern);
 	}
 
 	/*
@@ -107,8 +110,7 @@ class Tree
 	 *
 	 * Callback gets this router as sole argument.
 	 *
-	 * Before filters have BeforeFilterInfo as argument.
-	 * After filters have AfterFilterInfo as argument.
+	 * Filters have filterInfo as argument.
 	 *
 	 * @param callable[] $before Filters to run before routes
 	 * @param callable[] $after Filters to run after routes
@@ -136,6 +138,36 @@ class Tree
 		return $out;
 	}
 
+	/**
+	 * The argument to filters
+	 */
+	private function createFilterInfo($verb, $path, $matchedPath, $variables, $data, $result = null)
+	{
+		return new class ($verb, $path, $matchedPath, $variables, $data, $result) {
+			/** @var string */
+			public $verb;
+			/** @var string */
+			public $path;
+			/** @var string */
+			public $matchedPath;
+			/** @var array */
+			public $variables;
+			/** @var array */
+			public $data;
+			/** @var mixed */
+			public $result;
+
+			public function __construct($verb, $path, $matchedPath, $variables, $data, $result)
+			{
+				$this->verb = $verb;
+				$this->path = $path;
+				$this->matchedPath = $matchedPath;
+				$this->variables = $variables;
+				$this->data = $data;
+				$this->result = $result;
+			}
+		};
+	}
 
 	/*
 	|--------------------------------------------------------------------------
@@ -184,6 +216,13 @@ class Tree
 
 		}
 
+		// Path is empty, but there may still be ":empty:" paths
+		if (isset($this->subpaths[':empty:'])) {
+			if ($result = $this->callRoute($this->subpaths[':empty:'], $verb, $variables, $data)) {
+				return $result;
+			}
+		}
+
 		// No matches
 		throw new \Exception("No route", 404);
 	}
@@ -194,7 +233,7 @@ class Tree
 		$this->subpatterns = [];
 		if ($route->verbs === false || in_array($verb, $route->verbs)) {
 
-			$beforeInfo = new BeforeFilterInfo($verb, null, null, $variables, $data);
+			$beforeInfo = $this->createFilterInfo($verb, null, null, $variables, $data);
 
 			// Check before filters
 			// Filters are run in order, and they don't know anything about each other.
@@ -208,7 +247,7 @@ class Tree
 
 			$result = call_user_func_array($route->callback, array_merge($variables, [$data]));
 
-			$afterInfo = new AfterFilterInfo($verb, null, null, $variables, $data, $result);
+			$afterInfo = $this->createFilterInfo($verb, null, null, $variables, $data, $result);
 
 			// Check after filter
 			// After filters can modify the result in any way they see fit,
@@ -221,75 +260,34 @@ class Tree
 		}
 	}
 
-}
-
-/**
- * Private class used by Router
- */
-class Route
-{
-	/** @var callable */
-	public $callback;
-	/** @var string[] */
-	public $verbs;
-	/** @var string */
-	public $pattern = null;
-	/** @var callable[] */
-	public $beforeFilters;
-	/** @var callable[] */
-	public $afterFilters;
-
-	public function __construct($callback, $verbs, $beforeFilters, $afterFilters, $pattern = null)
+	/**
+	 * Create path-object used to route.
+	 */
+	private function createPath($callback, $verbs, $beforeFilters, $afterFilters, $pattern = null)
 	{
-		$this->callback = $callback;
-		$this->verbs = $verbs;
-		$this->beforeFilters = $beforeFilters;
-		$this->afterFilters = $afterFilters;
-		$this->pattern = $pattern;
+		return new class ($callback, $verbs, $beforeFilters, $afterFilters, $pattern) {
+			/** @var callable */
+			public $callback;
+			/** @var string[] */
+			public $verbs;
+			/** @var string */
+			public $pattern = null;
+			/** @var callable[] */
+			public $beforeFilters;
+			/** @var callable[] */
+			public $afterFilters;
+
+			public function __construct($callback, $verbs, $beforeFilters, $afterFilters, $pattern)
+			{
+				$this->callback = $callback;
+				$this->verbs = $verbs;
+				$this->beforeFilters = $beforeFilters;
+				$this->afterFilters = $afterFilters;
+				$this->pattern = $pattern;
+			}
+		};
 	}
-}
 
-/**
- * The argument to before filters
- */
-class BeforeFilterInfo
-{
-	/** @var string */
-	public $verb;
-	/** @var string */
-	public $path;
-	/** @var string */
-	public $matchedPath;
-	/** @var array */
-	public $variables;
-	/** @var array */
-	public $data;
-
-	public function __construct($verb, $path, $matchedPath, $variables, $data)
-	{
-		$this->verb = $verb;
-		$this->path = $path;
-		$this->matchedPath = $matchedPath;
-		$this->variables = $variables;
-		$this->data = $data;
-	}
-}
-
-/**
- * The argument to after filters
- *
- * Same as BeforeFilterInfo but with the result of the action too.
- */
-class AfterFilterInfo extends BeforeFilterInfo
-{
-	/** @var mixed */
-	public $result;
-
-	public function __construct($verb, $path, $matchedPath, $variables, $data, $result)
-	{
-		parent::__construct($verb, $path, $matchedPath, $variables, $data);
-		$this->result = $result;
-	}
 }
 
 }
